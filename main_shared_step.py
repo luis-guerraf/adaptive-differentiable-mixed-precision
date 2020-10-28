@@ -252,7 +252,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True)
 
     if args.evaluate:
-        validate(val_loader, model, criterion, 0, args, convs, bns)
+        validate_all(val_loader, model, criterion, 0, args, convs, bns)
         return
 
     # Train first and last switch only (2 and 8 bits)

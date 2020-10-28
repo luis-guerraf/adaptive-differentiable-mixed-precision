@@ -175,7 +175,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion_policy = nn.CrossEntropyLoss(ignore_index=0).cuda(args.gpu)
+    criterion_policy = nn.MSELoss().cuda(args.gpu)
 
     # Freeze main network
     model.apply(freeze_weights)
@@ -301,8 +301,9 @@ def train(train_loader, model, criterion, criterion_policy, optimizer, epoch, ar
     top5 = AverageMeter('Acc@5', ':6.2f')
     bitwidth_a = AverageMeter('Bit_a', ':1.2f')
     bitwidth_w = AverageMeter('Bit_w', ':1.2f')
-    progress = ProgressMeter([batch_time, losses, losses_policy, top1, top5, bitwidth_a, bitwidth_w],
-                                                    "Epoch: [{}]\t".format(epoch))
+    labels_meter = AverageMeter('labels', ':1.2f')
+    progress = ProgressMeter([batch_time, losses, losses_policy, top1, top5, bitwidth_a, bitwidth_w,
+                              labels_meter], "Epoch: [{}]\t".format(epoch))
 
     # switch to train mode
     model.train()
@@ -316,25 +317,23 @@ def train(train_loader, model, criterion, criterion_policy, optimizer, epoch, ar
         end = time.time()
 
         with torch.no_grad():
-            labels = torch.zeros(images.size(0), dtype=torch.long, device=target.device)
+            labels = torch.zeros(images.size(0), dtype=torch.float, device=target.device)
             for bitA in bitA_array:
                 if torch.any(labels == 0).item():
                     output, _ = model(images[labels == 0], bitwidth=bitA)
                     correct = get_correct(output, target[labels == 0])
-                    labels[labels == 0] = correct.squeeze().long() * bitA
+                    labels[labels == 0] = correct.squeeze().float() * bitA
 
         labels[labels == 0] = 8
-
-        output, probs_a = model(images)
         labels = bit2index(labels)
 
+        output, index_a = model(images)
+
         loss = criterion(output, target)
-        loss_policy = criterion_policy(probs_a, labels)
+        loss_policy = criterion_policy(index_a, labels)
 
         # Compute precision from indices
-        indices = probs_a.max(dim=1).indices
-        bit_a = index2bit(indices)
-        precision = (bit_a, torch.ones_like(bit_a))
+        precision = (index2bit(index_a), torch.ones_like(index_a))
 
         # Optimize
         optimizer.zero_grad()
@@ -349,6 +348,7 @@ def train(train_loader, model, criterion, criterion_policy, optimizer, epoch, ar
         top5.update(acc5[0], images.size(0))
         bitwidth_a.update(precision[0].double().mean(), images.size(0))
         bitwidth_w.update(precision[1].double().mean(), images.size(0))
+        labels_meter.update(labels.double().mean(), images.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -382,14 +382,12 @@ def validate(val_loader, model, criterion, criterion_policy, epoch, args):
                 target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output, probs_a = model(images)
+            output, index_a = model(images)
 
             loss = criterion(output, target)
 
             # Compute precision from indices
-            indices = probs_a.max(dim=1).indices
-            bit_a = index2bit(indices)
-            precision = (bit_a, torch.ones_like(bit_a))
+            precision = (index2bit(index_a), torch.ones_like(index_a))
 
             # measure accuracy and record loss
             acc1, acc5 = accuracy(output, target, topk=(1, 5))

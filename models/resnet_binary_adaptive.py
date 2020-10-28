@@ -3,7 +3,7 @@ import torch.nn as nn
 from .utils import load_state_dict_from_url
 from .quantized_ops import QuantizedConv2d_batch
 from .switchable_ops import SwitchableBatchNorm2d_batch
-from .policy import Policy_CNN_discrete as Policy
+from .policy import Policy_CNN_continuous as Policy
 
 # They can be set main.py
 Conv2d = QuantizedConv2d_batch
@@ -168,16 +168,13 @@ class ResNet(nn.Module):
 
         ones = torch.ones((x.size(0)), dtype=torch.int32, device=x.device)
         if bitwidth:
-            precision = (ones*bitwidth, ones)
-            probs_a = None
-            idx = {1: 0, 2: 1, 3: 2, 8: 3}
-            indices = ones*idx[bitwidth]
+            bit_a = ones*bitwidth
+            index_a = bit2index(bit_a)
         else:
-            probs_a, probs_w = self.policy(x)
-            indices = probs_a.max(dim=1).indices
-            bit_a = index2bit(indices)
-            precision = (bit_a, ones)
-        self.configure_model(precision, indices)
+            index_a, index_w = self.policy(x)
+            bit_a = index2bit(index_a)
+        precision = (bit_a, ones)
+        self.configure_model(precision, index_a)
 
         x = self.layer1(x)
         x = self.layer2(x)
@@ -188,15 +185,15 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
-        return x, probs_a
+        return x, index_a
 
-    def configure_model(self, bits, indices):
+    def configure_model(self, bits, index_a):
         bit_a, bit_w = bits
 
         for conv, bn in zip(self.convs, self.BNs):
             conv.bitA = bit_a[:]
             conv.bitW = bit_w[:]
-            bn.switch = indices[:]
+            bn.switch = index_a[:]
 
 
 def index2bit(indices):
@@ -206,6 +203,15 @@ def index2bit(indices):
     bit_a[indices == 2] = 3
     bit_a[indices == 3] = 8
     return bit_a
+
+
+def bit2index(bitwidth):
+    indices = bitwidth.clone()
+    indices[bitwidth == 1] = 0
+    indices[bitwidth == 2] = 1
+    indices[bitwidth == 3] = 2
+    indices[bitwidth == 8] = 3
+    return indices
 
 
 # Create list with conv2d

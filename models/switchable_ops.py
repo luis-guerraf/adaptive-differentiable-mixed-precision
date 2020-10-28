@@ -36,7 +36,7 @@ class SwitchableBatchNorm2d_batch(nn.Module):
         for elem in torch.unique(self.switch):
             mask = self.switch == elem
             _input = input[mask]
-            res = self.bn[elem](_input)
+            res = self.bn[int(elem.item())](_input)
             output[mask] = res
 
         return output

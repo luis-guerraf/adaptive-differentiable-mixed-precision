@@ -55,12 +55,9 @@ class Policy_CNN_continuous(nn.Module):
         hidden_dim = 10
 
         self.reduce = nn.Sequential(
-            conv_dw(in_channels, hidden_dim, 1),
-            conv_dw(hidden_dim, hidden_dim, 1),
-            conv_dw(hidden_dim, hidden_dim, 1),
-            conv_dw(hidden_dim, hidden_dim, 1),
-            conv_dw(hidden_dim, hidden_dim, 1),
-            conv_dw(hidden_dim, hidden_dim, 1),
+            conv_dw(in_channels, hidden_dim, 2),
+            conv_dw(hidden_dim, hidden_dim, 2),
+            conv_dw(hidden_dim, hidden_dim, 2),
             nn.AdaptiveAvgPool2d((1, 1))
         )
 
@@ -70,12 +67,12 @@ class Policy_CNN_continuous(nn.Module):
     def forward(self, x):
         x = self.reduce(x)
         x = torch.flatten(x, 1)
-        bit_a = self.classifier_a(x)
-        bit_w = self.classifier_w(x)
-        bit_a = discretize(bit_a)
-        bit_w = discretize(bit_w)
+        index_a = self.classifier_a(x).squeeze()
+        index_w = self.classifier_w(x).squeeze()
+        index_a = discretize.apply(index_a)
+        index_w = discretize.apply(index_w)
 
-        return bit_a, bit_w
+        return index_a, index_w
 
 
 class discretize(torch.autograd.Function):
@@ -84,8 +81,7 @@ class discretize(torch.autograd.Function):
         x[x <= 0.5] = 0
         x[(x > 0.5) * (x <= 1.5)] = 1
         x[(x > 1.5) * (x <= 2.5)] = 2
-        x[(x > 2.5) * (x <= 5)] = 3
-        x[x > 5] = 8
+        x[x > 2.5] = 3
         return x
 
     @staticmethod
